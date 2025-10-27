@@ -13,8 +13,14 @@ def process_transaction_text(text):
     The amount should be in numbers.
     The type should be either "expense" or "income".
     Return the result in a JSON format with the keys "description", "amount", and "type".
+    
+    If the text is not a transaction, return a JSON object with the key "error" and a value of "not a transaction".
+    
     For example, if the text is "beli kopi 25rb", the output should be:
     {{"description": "beli kopi", "amount": 25000, "type": "expense"}}
+    
+    If the text is "hello", the output should be:
+    {{"error": "not a transaction"}}
     """
     response = model.generate_content(prompt)
     return response.text

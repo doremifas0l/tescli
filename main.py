@@ -1,3 +1,4 @@
+
 import sys
 import json
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QTextEdit, QLineEdit, QPushButton, QTableView
@@ -23,11 +24,12 @@ class AIWorker(QThread):
             processed_text = process_transaction_text(self.text)
             cleaned_text = processed_text.strip().replace('\n', '').replace('```json', '').replace('```', '')
             transaction_data = json.loads(cleaned_text)
-            description = transaction_data.get("description")
             
-            if description:
-                category_suggestion = get_category_suggestion(description).strip()
-                transaction_data["category"] = category_suggestion
+            if "error" not in transaction_data:
+                description = transaction_data.get("description")
+                if description:
+                    category_suggestion = get_category_suggestion(description).strip()
+                    transaction_data["category"] = category_suggestion
             
             self.finished.emit(transaction_data)
         except (json.JSONDecodeError, Exception) as e:
@@ -69,13 +71,15 @@ class MainWindow(QMainWindow):
         self.chat_tab.setLayout(layout)
 
     def process_message(self):
-        user_message = self.input_field.text()
+        user_message = self.input_field.text().strip()
         if not user_message:
+            self.chat_history.append("Bot: Please enter a message.")
             return
             
         self.chat_history.append(f"You: {user_message}")
         self.input_field.clear()
         self.send_button.setEnabled(False)
+        self.chat_history.append("Bot: is typing...")
 
         self.worker = AIWorker(user_message)
         self.worker.finished.connect(self.handle_ai_response)
@@ -83,8 +87,19 @@ class MainWindow(QMainWindow):
 
     def handle_ai_response(self, transaction_data):
         self.send_button.setEnabled(True)
+        # Remove "Bot is typing..." message
+        cursor = self.chat_history.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.movePosition(cursor.MoveOperation.StartOfLine, cursor.MoveMode.MoveAnchor)
+        cursor.movePosition(cursor.MoveOperation.EndOfLine, cursor.MoveMode.KeepAnchor)
+        cursor.removeSelectedText()
+        cursor.deletePreviousChar() # remove the newline
+
         if "error" in transaction_data:
-            self.chat_history.append(f"Bot: Error: {transaction_data['error']}")
+            if transaction_data["error"] == "not a transaction":
+                self.chat_history.append("Bot: I can only process transactions. Please describe a transaction (e.g., 'bought coffee 25rb').")
+            else:
+                self.chat_history.append(f"Bot: Error: {transaction_data['error']}")
             return
 
         description = transaction_data.get("description")
