@@ -1,9 +1,10 @@
 import sys
 import json
+import csv
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout,
     QTextEdit, QLineEdit, QPushButton, QTableView,
-    QDialog, QFormLayout, QComboBox, QDoubleSpinBox, QDialogButtonBox, QMessageBox
+    QDialog, QFormLayout, QComboBox, QDoubleSpinBox, QDialogButtonBox, QMessageBox, QFileDialog
 )
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QPoint
@@ -166,8 +167,12 @@ class MainWindow(QMainWindow):
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.clicked.connect(self.load_transactions)
 
+        self.export_button = QPushButton("Export to CSV")
+        self.export_button.clicked.connect(self.export_transactions_to_csv)
+
         layout.addWidget(self.transaction_view)
         layout.addWidget(self.refresh_button)
+        layout.addWidget(self.export_button)
         self.transactions_tab.setLayout(layout)
 
         self.model = QStandardItemModel()
@@ -221,6 +226,23 @@ class MainWindow(QMainWindow):
             transaction_id = int(self.model.item(row, 0).text())
             delete_transaction(transaction_id)
             self.load_transactions()
+
+    def export_transactions_to_csv(self):
+        file_name, _ = QFileDialog.getSaveFileName(self, "Export Transactions", "transactions.csv", "CSV Files (*.csv)")
+        if file_name:
+            try:
+                with open(file_name, 'w', newline='', encoding='utf-8') as csvfile:
+                    csv_writer = csv.writer(csvfile)
+                    # Write header
+                    csv_writer.writerow(["ID", "Description", "Amount", "Type", "Category", "Date"])
+                    # Write data
+                    transactions = get_transactions()
+                    for transaction in transactions:
+                        csv_writer.writerow([transaction["id"], transaction["description"], transaction["amount"],
+                                             transaction["type"], transaction["category"], str(transaction["date"])])
+                QMessageBox.information(self, "Export Successful", f"Transactions exported to {file_name}")
+            except Exception as e:
+                QMessageBox.critical(self, "Export Error", f"Error exporting transactions: {e}")
 
     def load_transactions(self):
         self.model.clear()
