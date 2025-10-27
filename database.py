@@ -31,6 +31,21 @@ def add_transaction(description, amount, type, category):
     conn.commit()
     conn.close()
 
+def delete_transaction(transaction_id):
+    conn = get_db_connection()
+    conn.execute('DELETE FROM transactions WHERE id = ?', (transaction_id,))
+    conn.commit()
+    conn.close()
+
+def update_transaction(transaction_id, description, amount, type, category):
+    conn = get_db_connection()
+    conn.execute(
+        'UPDATE transactions SET description = ?, amount = ?, type = ?, category = ? WHERE id = ?',
+        (description, amount, type, category, transaction_id)
+    )
+    conn.commit()
+    conn.close()
+
 def get_transactions():
     conn = get_db_connection()
     transactions = conn.execute('SELECT * FROM transactions ORDER BY date DESC').fetchall()

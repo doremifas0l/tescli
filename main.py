@@ -1,12 +1,15 @@
-
 import sys
 import json
-from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QTextEdit, QLineEdit, QPushButton, QTableView
-from PyQt6.QtGui import QStandardItemModel, QStandardItem
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout,
+    QTextEdit, QLineEdit, QPushButton, QTableView,
+    QDialog, QFormLayout, QComboBox, QDoubleSpinBox, QDialogButtonBox, QMessageBox
+)
+from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QPoint
 
 from ai import configure_ai, process_transaction_text, get_category_suggestion
-from database import create_table, add_transaction, get_transactions
+from database import create_table, add_transaction, get_transactions, delete_transaction, update_transaction
 
 # It's not recommended to hardcode the API key like this in a real application.
 # It's better to use environment variables or other secure methods.
@@ -34,6 +37,46 @@ class AIWorker(QThread):
             self.finished.emit(transaction_data)
         except (json.JSONDecodeError, Exception) as e:
             self.finished.emit({"error": str(e)})
+
+class EditTransactionDialog(QDialog):
+    def __init__(self, transaction_data, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Transaction")
+        self.transaction_data = transaction_data
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QFormLayout()
+
+        self.description_input = QLineEdit(self.transaction_data.get("description", ""))
+        self.amount_input = QDoubleSpinBox()
+        self.amount_input.setRange(0.01, 1000000000.00)
+        self.amount_input.setValue(self.transaction_data.get("amount", 0.00))
+        self.type_input = QComboBox()
+        self.type_input.addItems(["expense", "income"])
+        self.type_input.setCurrentText(self.transaction_data.get("type", "expense"))
+        self.category_input = QLineEdit(self.transaction_data.get("category", ""))
+
+        layout.addRow("Description:", self.description_input)
+        layout.addRow("Amount:", self.amount_input)
+        layout.addRow("Type:", self.type_input)
+        layout.addRow("Category:", self.category_input)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addRow(button_box)
+
+        self.setLayout(layout)
+
+    def get_edited_data(self):
+        return {
+            "id": self.transaction_data.get("id"),
+            "description": self.description_input.text(),
+            "amount": self.amount_input.value(),
+            "type": self.type_input.currentText(),
+            "category": self.category_input.text()
+        }
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -117,6 +160,9 @@ class MainWindow(QMainWindow):
     def setup_transactions_tab(self):
         layout = QVBoxLayout()
         self.transaction_view = QTableView()
+        self.transaction_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.transaction_view.customContextMenuRequested.connect(self.show_transaction_context_menu)
+
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.clicked.connect(self.load_transactions)
 
@@ -128,13 +174,64 @@ class MainWindow(QMainWindow):
         self.transaction_view.setModel(self.model)
         self.load_transactions()
 
+    def show_transaction_context_menu(self, pos: QPoint):
+        index = self.transaction_view.indexAt(pos)
+        if not index.isValid():
+            return
+
+        menu = QMenu(self)
+
+        edit_action = QAction("Edit", self)
+        edit_action.triggered.connect(lambda: self.edit_transaction(index.row()))
+        menu.addAction(edit_action)
+
+        delete_action = QAction("Delete", self)
+        delete_action.triggered.connect(lambda: self.delete_selected_transaction(index.row()))
+        menu.addAction(delete_action)
+
+        menu.exec(self.transaction_view.viewport().mapToGlobal(pos))
+
+    def edit_transaction(self, row):
+        transaction_id = int(self.model.item(row, 0).text())
+        description = self.model.item(row, 1).text()
+        amount = float(self.model.item(row, 2).text())
+        transaction_type = self.model.item(row, 3).text()
+        category = self.model.item(row, 4).text()
+
+        transaction_data = {
+            "id": transaction_id,
+            "description": description,
+            "amount": amount,
+            "type": transaction_type,
+            "category": category
+        }
+
+        dialog = EditTransactionDialog(transaction_data, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            edited_data = dialog.get_edited_data()
+            update_transaction(edited_data["id"], edited_data["description"], edited_data["amount"],
+                               edited_data["type"], edited_data["category"])
+            self.load_transactions()
+
+    def delete_selected_transaction(self, row):
+        confirm = QMessageBox.question(self, "Delete Transaction",
+                                       "Are you sure you want to delete this transaction?",
+                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if confirm == QMessageBox.StandardButton.Yes:
+            transaction_id = int(self.model.item(row, 0).text())
+            delete_transaction(transaction_id)
+            self.load_transactions()
+
     def load_transactions(self):
         self.model.clear()
         self.model.setHorizontalHeaderLabels(["ID", "Description", "Amount", "Type", "Category", "Date"])
         transactions = get_transactions()
         for transaction in transactions:
             row = []
-            for item in transaction:
+            # Extract data from sqlite3.Row object
+            row_data = [transaction["id"], transaction["description"], transaction["amount"],
+                        transaction["type"], transaction["category"], str(transaction["date"])]
+            for item in row_data:
                 row.append(QStandardItem(str(item)))
             self.model.appendRow(row)
 
